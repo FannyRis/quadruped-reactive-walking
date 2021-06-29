@@ -70,9 +70,10 @@ class SurfacePlanner_Wrapper():
     ''' Wrapper for the class SurfacePlanner for the paralellisation
     '''
 
-    def __init__(self, urdf, T_gait, N_gait, n_surfaces_configs):
+    def __init__(self, urdf, T_gait, N_gait, n_surfaces_configs, shoulders):
         self.urdf = urdf
         self.T_gait = T_gait
+        self.shoulders = shoulders
 
         # TODO : Modify this
         # Usefull for 1st iteration of QP
@@ -109,7 +110,7 @@ class SurfacePlanner_Wrapper():
         self.mip_iteration_syn = 0
         self.mip_success_syn = False
 
-        self.multiprocessing = True
+        self.multiprocessing = False
         if self.multiprocessing:  # Setup variables in the shared memory
             self.newData = Value('b', False)
             self.newResult = Value('b', True)
@@ -121,10 +122,9 @@ class SurfacePlanner_Wrapper():
             self.dataIn = Value(DataInCtype)
 
         else:
-            self.surfacePlanner = SurfacePlanner(self.urdf, self.T_gait)
+            self.surfacePlanner = SurfacePlanner(self.urdf, self.T_gait, self.shoulders)
 
     def run(self, configs, gait_in, current_contacts, o_v_ref):
-
         if self.multiprocessing:
             self.run_asynchronous(configs, gait_in, current_contacts, o_v_ref)
         else:
@@ -176,7 +176,7 @@ class SurfacePlanner_Wrapper():
 
                 with self.dataIn.get_lock():
                     if self.dataIn.iteration == 0:
-                        loop_planner = SurfacePlanner(self.urdf, self.T_gait)
+                        loop_planner = SurfacePlanner(self.urdf, self.T_gait, self.shoulders)
 
                 surfaces, surface_inequalities, surfaces_indices, all_feet_pos, success = loop_planner.run(configs, gait_in, current_contacts, o_v_ref)
 
@@ -230,6 +230,7 @@ class SurfacePlanner_Wrapper():
         with self.dataOut.get_lock():
             # Compress potential surfaces :
             for foot, foot_surfaces in enumerate(surface_inequalities):
+                i=0
                 for i, (S, s) in enumerate(foot_surfaces):
                     A = np.frombuffer(self.dataOut.potentialSurfaces[foot][i].A).reshape((nrow, 3))
                     b = np.frombuffer(self.dataOut.potentialSurfaces[foot][i].b)

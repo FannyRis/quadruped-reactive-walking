@@ -39,9 +39,9 @@ class Joystick:
         self.vX = 0.
         self.vY = 0.
         self.vYaw = 0.
-        self.VxScale = 0.6
-        self.VyScale = 1.2
-        self.vYawScale = 1.6
+        self.VxScale = 0.3
+        self.VyScale = 0.5
+        self.vYawScale = 0.5
 
         self.Vx_ref = 0.3
         self.Vy_ref = 0.0
@@ -220,13 +220,13 @@ class Joystick:
                                                 0.0, 0.0, 0.0, 0.0, 0.3, 0.3, 0.0, 0.0,
                                                 -0.3, 0.0])
         elif velID == 2:
-            self.k_switch = np.array([0, 400, 2000])
-            self.v_switch = np.array([[0.0, 0.05, 0.05],
-                                      [0.0, 0.0, 0.0],
-                                      [0.0, 0.0, 0.0],
-                                      [0.0, 0.0, 0.0],
-                                      [0.0, 0.0, 0.0],
-                                      [0.0, 0., 0.0]])
+            self.k_switch = np.array([   0, 400, 6000])
+            self.v_switch = np.array([[0.0, 0.2,  -0.2],
+                                      [0.0, 0.0,  0.0],
+                                      [0.0, 0.0,  0.0],
+                                      [0.0, 0.0,  0.0],
+                                      [0.0, 0.0,  0.0],
+                                      [0.0, 0.0,  0.0]])
 
         self.handle_v_switch(k_loop)
 

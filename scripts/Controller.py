@@ -2,33 +2,29 @@
 import numpy as np
 import utils_mpc
 import time
-from time import perf_counter as clock
-
 from QP_WBC import wbc_controller
 import MPC_Wrapper
 import pybullet as pyb
 import pinocchio as pin
-from solopython.utils.viewerClient import viewerClient, NonBlockingViewerFromRobot
 import libquadruped_reactive_walking as lqrw
 
 from solo3D.FootTrajectoryGeneratorBezier import FootTrajectoryGeneratorBezier
 from solo3D.StatePlanner import StatePlanner
-from solo3D.LoggerPlanner import LoggerPlanner
+# from solo3D.LoggerPlanner import LoggerPlanner
 from solo3D.SurfacePlannerWrapper import SurfacePlanner_Wrapper
 
 from solo3D.tools.vizualization import PybVisualizationTraj
 from example_robot_data import load
 
 from solo3D.tools.geometry import inertiaTranslation
-from time import perf_counter as clock
 
 # URDF = "/local/users/frisbourg/install/share/hpp_environments/urdf/Solo3D/stairs_rotation.urdf"
 # HEIGHTMAP = "/local/users/frisbourg/install/share/hpp_environments/heightmaps/Solo3D/stairs_rotation.pickle"
+# STL = None
 
-URDF = "/local/users/frisbourg/install/share/hpp_environments/urdf/Solo3D/floor_sparse.urdf"
-HEIGHTMAP = "/local/users/frisbourg/install/share/hpp_environments/heightmaps/Solo3D/floor_sparse.pickle"
-STL = "/local/users/frisbourg/install/share/hpp_environments/meshes/Solo3D/floor_sparse.stl"
-
+HEIGHTMAP = "/local/users/frisbourg/install/share/hpp_environments/heightmaps/Solo3D/floor_4_4.pickle"
+URDF = "/local/users/frisbourg/install/share/hpp_environments/urdf/Solo3D/floor_5.urdf"
+STL = "/local/users/frisbourg/install/share/hpp_environments/meshes/Solo3D/floor_5.stl"
 
 class Result:
     """Object to store the result of the control loop
@@ -67,7 +63,7 @@ class dummyDevice:
 class Controller:
 
     def __init__(self, q_init, envID, velID, dt_wbc, dt_mpc, k_mpc, t, T_gait, T_mpc, N_SIMULATION, type_MPC,
-                 use_flat_plane, predefined_vel, enable_pyb_GUI, kf_enabled, N_gait, isSimulation):
+                 use_flat_plane, predefined_vel, enable_pyb_GUI, kf_enabled, N_gait, isSimulation, qc=None):
         """Function that runs a simulation scenario based on a reference velocity profile, an environment and
         various parameters to define the gait
 
@@ -96,7 +92,11 @@ class Controller:
 
         # Lists to log the duration of 1 iteration of the MPC/TSID
         self.t_list_filter = [0] * int(N_SIMULATION)
-        self.t_list_planner = [0] * int(N_SIMULATION)
+        self.t_list_gait = [0] * int(N_SIMULATION)
+        self.t_list_footstep = [0] * int(N_SIMULATION)
+        self.t_list_state = [0] * int(N_SIMULATION)
+        self.t_list_foottraj = [0] * int(N_SIMULATION)
+        # self.t_list_planner = [0] * int(N_SIMULATION)
         self.t_list_mpc = [0] * int(N_SIMULATION)
         self.t_list_wbc = [0] * int(N_SIMULATION)
         self.t_list_loop = [0] * int(N_SIMULATION)
@@ -111,7 +111,7 @@ class Controller:
         self.ID_deb_lines = []
 
         # Enable/Disable Gepetto viewer
-        self.enable_gepetto_viewer = True
+        self.enable_gepetto_viewer = False
 
         # Enable/Disable perfect estimator
         perfectEstimator = True
@@ -124,7 +124,7 @@ class Controller:
         # Create Joystick, FootstepPlanner, Logger and Interface objects
         self.joystick, self.logger, self.estimator = utils_mpc.init_objects(
             dt_wbc, dt_mpc, N_SIMULATION, k_mpc, T_gait, type_MPC, predefined_vel, self.h_init, kf_enabled,
-            perfectEstimator)
+            perfectEstimator, qc=qc)
 
         # Enable/Disable hybrid control
         self.enable_hybrid_control = True
@@ -197,7 +197,8 @@ class Controller:
 
         # Solo3D python class
         n_surface_configs = 3
-        self.surfacePlanner = SurfacePlanner_Wrapper(URDF, T_gait, N_gait, n_surface_configs)
+        self.surfacePlanner = SurfacePlanner_Wrapper(URDF, T_gait, N_gait, n_surface_configs, shoulders)
+        print(shoulders)
 
         self.statePlanner = StatePlanner(dt_mpc, T_mpc, self.h_ref, HEIGHTMAP, n_surface_configs, T_gait)
 
@@ -219,7 +220,7 @@ class Controller:
         self.q_neutral = pin.neutral(self.model).reshape((19, 1))  # column vector
 
         # Log values for planner
-        self.loggerPlanner = LoggerPlanner(dt_mpc, N_SIMULATION, T_gait, k_mpc)
+        # self.loggerPlanner = LoggerPlanner(dt_mpc, N_SIMULATION, T_gait, k_mpc)
 
         self.compute(dDevice)
 
@@ -264,9 +265,12 @@ class Controller:
             oMb = pin.SE3(pin.Quaternion(self.q[3:7, 0:1]), self.q[0:3, 0:1])
             self.v_estim = self.v.copy()
 
+
         # Update gait
         self.gait.updateGait(self.k, self.k_mpc, self.q[0:7, 0:1], self.joystick.joystick_code)
         cgait = self.gait.getCurrentGait()
+
+        t_gait = time.time()
 
         o_v_ref = np.zeros((6, 1))
         o_v_ref[0:3, 0:1] = oMb.rotation @ self.joystick.v_ref[0:3, 0:1]
@@ -291,11 +295,11 @@ class Controller:
         ################
         # Update footsteps if new contact phase
         new_step = self.k % self.k_mpc == 0 and self.gait.isNewPhase()
-        if new_step and self.k != 0:
-            self.footstepPlanner.updateNewContact()
+        if new_step:
+            self.statePlanner.compute_mean_surface(self.q[:3, 0])
+            if self.k != 0:
+                self.footstepPlanner.updateNewContact()
 
-            # New phase, results from MIP should be available
-            # Only usefull for multiprocessing
             if self.surfacePlanner.first_iteration:
                 self.surfacePlanner.first_iteration = False
             else:
@@ -304,16 +308,25 @@ class Controller:
         targetFootstep = self.footstepPlanner.computeTargetFootstep(self.k, self.q[0:7, 0:1], self.v[0:6, 0:1].copy(
         ), o_v_ref, self.surfacePlanner.potential_surfaces, self.surfacePlanner.selected_surfaces, self.surfacePlanner.mip_success, self.surfacePlanner.mip_iteration)
         fsteps = self.footstepPlanner.getFootsteps()
+        o_v_ref_QP = o_v_ref[:, 0].copy()
+        o_v_ref_QP[:2] = self.footstepPlanner.get_v_ref()[:2]
+
+        t_footstep = time.time()
 
         # Compute target footstep based on current and reference velocities
-        self.statePlanner.computeReferenceStates(self.q[:7, 0].copy(), self.v[:6, 0].copy(), o_v_ref[:, 0].copy(), new_step)
+        self.statePlanner.computeReferenceStates(self.q[:7, 0].copy(), self.v[:6, 0].copy(), o_v_ref_QP.copy())
         xref = self.statePlanner.getReferenceStates()
+
+        t_state = time.time()
 
         # Compute foot trajectory
         self.footTrajectoryGenerator.update(self.k, targetFootstep)
         # self.footTrajectoryGenerator.update(self.k, targetFootstep, device, self.q, self.v)
 
+        t_foottraj = time.time()
+
         if new_step:
+            self.statePlanner.compute_configurations(self.q[:7, 0].copy(), o_v_ref.copy())
             self.surfacePlanner.run(self.statePlanner.configs, cgait, targetFootstep, o_v_ref)
             if not self.surfacePlanner.multiprocessing:
                 self.pybVisualizationTraj.updateSl1M_target(self.surfacePlanner.all_feet_pos)
@@ -335,7 +348,7 @@ class Controller:
                 xref_CoM = xref.copy()
                 xref_CoM[:3, :] += CoM_offset
                 # Update inertia matrix of MPC
-                self.mpc_wrapper.mpc.I = inertia_CoM
+                # self.mpc_wrapper.mpc.I = inertia_CoM
                 self.mpc_wrapper.solve(self.k, xref_CoM, fsteps, cgait)
 
             except ValueError:
@@ -372,14 +385,21 @@ class Controller:
                                       self.footTrajectoryGenerator.getFootVelocity(),
                                       self.footTrajectoryGenerator.getFootAcceleration())
 
+            if self.enable_gepetto_viewer and (self.k % 20 == 0):
+                self.solo.display(self.q[:, 0])
+
             # Quantities sent to the control board
-            self.result.P = 2.0 * np.ones(12)
-            self.result.D = 0.2 * np.ones(12)
+            self.result.P = 6.0 * np.ones(12)
+            self.result.D = 0.3 * np.ones(12)
             self.result.q_des[:] = self.myController.qdes[7:]
             self.result.v_des[:] = self.myController.vdes[6:, 0]
-            self.result.tau_ff[:] = 0.5 * self.myController.tau_ff
+            self.result.tau_ff[:] = 0.8 * self.myController.tau_ff
 
         t_wbc = time.time()
+
+        # if self.k > 10 and self.enable_pyb_GUI:
+        #     pyb.resetDebugVisualizerCamera(cameraDistance=0.6, cameraYaw=0, cameraPitch=-25.9,
+        #                                    cameraTargetPosition=[self.q[0, 0]+0.19, self.q[1, 0], 0.0])
 
         # Security check
         self.security_check()
@@ -388,15 +408,15 @@ class Controller:
         self.pybVisualizationTraj.update(self.k, device)
 
         # Logs
-        self.log_misc(t_start, t_filter, t_planner, t_mpc, t_wbc)
+        self.log_misc(t_start, t_filter, t_gait, t_footstep, t_state, t_foottraj, t_planner, t_mpc, t_wbc)
 
         # Log Planner
-        self.loggerPlanner.log_mpc(self.k, self.x_f_mpc)
-        self.loggerPlanner.log_feet(self.k, device, self.footTrajectoryGenerator.getFootPosition(),
-                                    self.footTrajectoryGenerator.getFootVelocity(),
-                                    self.footTrajectoryGenerator.getFootAcceleration(), targetFootstep,
-                                    self.q, self.v)
-        self.loggerPlanner.log_state(self.k, self.q[:7], self.v[:6], o_v_ref, self.joystick.v_ref[0:6, 0:1], oMb.rotation,  xref)
+        # self.loggerPlanner.log_mpc(self.k, self.x_f_mpc)
+        # self.loggerPlanner.log_feet(self.k, device, self.footTrajectoryGenerator.getFootPosition(),
+        #                             self.footTrajectoryGenerator.getFootVelocity(),
+        #                             self.footTrajectoryGenerator.getFootAcceleration(), targetFootstep,
+        #                             self.q, self.v)
+        # self.loggerPlanner.log_state(self.k, self.q[:7], self.v[:6], o_v_ref, self.joystick.v_ref[0:6, 0:1], oMb.rotation,  xref)
 
         # Increment loop counter
         self.k += 1
@@ -408,28 +428,27 @@ class Controller:
         if self.k > 10 and self.enable_pyb_GUI:
             # pyb.resetDebugVisualizerCamera(cameraDistance=0.8, cameraYaw=45, cameraPitch=-30,
             #                                cameraTargetPosition=[1.0, 0.3, 0.25])
-            # pyb.resetDebugVisualizerCamera(cameraDistance=1.5, cameraYaw=215, cameraPitch=-25.9,
-            #                                cameraTargetPosition=[device.dummyHeight[0], device.dummyHeight[1], 0.0])
+            pyb.resetDebugVisualizerCamera(cameraDistance=1.5, cameraYaw=90, cameraPitch=-25.9,
+                                           cameraTargetPosition=[self.q[0, 0]+0.19, self.q[1, 0], 0.0])
             pass
 
         # TODO : One class for pybullet visualization
-        # self.pybVisualizationTraj.vizuFootTraj(self.k , self.fsteps , self.gait , device)
+        self.pybVisualizationTraj.vizuFootTraj(self.k , self.fsteps , self.gait , device)
 
     def security_check(self):
-
-        # if (self.error_flag == 0) and (not self.myController.error) and (not self.joystick.stop):
-        #     if np.any(np.abs(self.estimator.q_filt[7:, 0]) > self.q_security):
-        #         self.myController.error = True
-        #         self.error_flag = 1
-        #         self.error_value = self.estimator.q_filt[7:, 0] * 180 / 3.1415
-        #     if np.any(np.abs(self.estimator.v_secu) > 50):
-        #         self.myController.error = True
-        #         self.error_flag = 2
-        #         self.error_value = self.estimator.v_secu
-        #     if np.any(np.abs(self.myController.tau_ff) > 8):
-        #         self.myController.error = True
-        #         self.error_flag = 3
-        #         self.error_value = self.myController.tau_ff
+        if (self.error_flag == 0) and (not self.myController.error) and (not self.joystick.stop):
+            if np.any(np.abs(self.estimator.q_filt[7:, 0]) > self.q_security):
+                self.myController.error = True
+                self.error_flag = 1
+                self.error_value = self.estimator.q_filt[7:, 0] * 180 / 3.1415
+            if np.any(np.abs(self.estimator.v_secu) > 100):
+                self.myController.error = True
+                self.error_flag = 2
+                self.error_value = self.estimator.v_secu
+            if np.any(np.abs(self.myController.tau_ff) > 15):
+                self.myController.error = True
+                self.error_flag = 3
+                self.error_value = self.myController.tau_ff
 
         # If something wrong happened in TSID controller we stick to a security controller
         if self.myController.error or self.joystick.stop:
@@ -441,14 +460,17 @@ class Controller:
             self.result.v_des[:] = np.zeros(12)
             self.result.tau_ff[:] = np.zeros(12)
 
-    def log_misc(self, tic, t_filter, t_planner, t_mpc, t_wbc):
+    def log_misc(self, tic, t_filter, t_gait, t_footstep, t_state, t_foottraj, t_planner, t_mpc, t_wbc):
 
         # Log joystick command
         if self.joystick is not None:
             self.estimator.v_ref = self.joystick.v_ref
 
         self.t_list_filter[self.k] = t_filter - tic
-        self.t_list_planner[self.k] = t_planner - t_filter
+        self.t_list_gait[self.k] = t_gait - t_filter
+        self.t_list_footstep[self.k] = t_footstep - t_gait
+        self.t_list_state[self.k] = t_state - t_footstep
+        self.t_list_foottraj[self.k] = t_foottraj - t_state
         self.t_list_mpc[self.k] = t_mpc - t_planner
         self.t_list_wbc[self.k] = t_wbc - t_mpc
         self.t_list_loop[self.k] = time.time() - tic

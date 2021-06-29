@@ -8,14 +8,13 @@ class StatePlanner():
 
     def __init__(self, dt_mpc, T_mpc, h_ref, HEIGHTMAP, n_surface_configs, T_gait):
 
-        self.h_ref = h_ref + 0.035
+        self.h_ref = h_ref
         self.dt_mpc = dt_mpc
         self.T_mpc = T_mpc
         self.T_step = T_gait/2
 
         self.n_steps = round(T_mpc / dt_mpc)
         self.referenceStates = np.zeros((12, 1 + self.n_steps))
-
 
         filehandler = open(HEIGHTMAP, 'rb')
         self.map = pickle.load(filehandler)
@@ -25,7 +24,9 @@ class StatePlanner():
 
         self.configs = [np.zeros(7) for _ in range(n_surface_configs)]
 
-    def computeReferenceStates(self, q,  v, v_ref, new_step=False):
+        self.result = [0., 0., 0.]
+
+    def computeReferenceStates(self, q,  v, v_ref):
         '''
         - q (7x1) : [px , py , pz , x , y , z , w]  --> here x,y,z,w quaternion
         - v (6x1) : current v linear in world frame
@@ -34,8 +35,7 @@ class StatePlanner():
         rpy = pin.rpy.matrixToRpy(pin.Quaternion(q[3:7]).toRotationMatrix())
 
         # Update the current state
-        self.referenceStates[:3, 0] = q[:3] + pin.rpy.rpyToMatrix(rpy).dot(np.array([-0.04, 0., 0.]))
-        # self.referenceStates[:3, 0] = q[:3]
+        self.referenceStates[:3, 0] = q[:3]
         self.referenceStates[3:6, 0] = rpy
         self.referenceStates[6:9, 0] = v[:3]
         self.referenceStates[9:12, 0] = v[3:6]
@@ -60,11 +60,9 @@ class StatePlanner():
             self.referenceStates[11, i] = v_ref[5]
 
         # Update according to heightmap
-        result = self.compute_mean_surface(q[:3])
-
         rpy_map = np.zeros(3)
-        rpy_map[0] = -np.arctan2(result[1], 1.)
-        rpy_map[1] = -np.arctan2(result[0], 1.)
+        rpy_map[0] = -np.arctan2(self.result[1], 1.)
+        rpy_map[1] = -np.arctan2(self.result[0], 1.)
 
         self.referenceStates[3, 1:] = rpy_map[0] * np.cos(rpy[2]) - rpy_map[1] * np.sin(rpy[2])
         self.referenceStates[4, 1:] = rpy_map[0] * np.sin(rpy[2]) + rpy_map[1] * np.cos(rpy[2])
@@ -77,7 +75,7 @@ class StatePlanner():
 
         for k in range(1, self.n_steps + 1):
             i, j = self.map.map_index(self.referenceStates[0, k], self.referenceStates[1, k])
-            z = result[0]*self.map.xv[i, j] + result[1]*self.map.yv[i, j] + result[2]
+            z = self.result[0]*self.map.x[i] + self.result[1]*self.map.y[j] + self.result[2]
             self.referenceStates[2, k] = z + self.h_ref
             if k == 1:
                 self.surface_point = z
@@ -85,9 +83,6 @@ class StatePlanner():
         v_max = 0.1  # m.s-1
         self.referenceStates[8, 1] = max(min((self.referenceStates[2, 1] - q[2]) / self.dt_mpc, v_max), -v_max)
         self.referenceStates[8, 2:] = (self.referenceStates[2, 2] -self.referenceStates[2, 1]) / self.dt_mpc
-
-        if new_step:
-            self.compute_configurations(q, rpy, v_ref)
 
     def compute_mean_surface(self, q):
         '''  Compute the surface equation to fit the heightmap, [a,b,c] such as ax + by -z +c = 0
@@ -104,13 +99,13 @@ class StatePlanner():
         i_pb = 0
         for i in range(i_min, i_max):
             for j in range(j_min, j_max):
-                A[i_pb, :] = [self.map.xv[i, j], self.map.yv[i, j], 1.]
-                b[i_pb] = self.map.zv[i, j]
+                A[i_pb, :] = [self.map.x[i], self.map.y[j], 1.]
+                b[i_pb] = self.map.z[i, j]
                 i_pb += 1
 
-        return solve_least_square(np.array(A), np.array(b)).x
+        self.result =  solve_least_square(np.array(A), np.array(b)).x
 
-    def compute_configurations(self, q, rpy, v_ref):
+    def compute_configurations(self, q, v_ref):
         """  
         Compute the surface equation to fit the heightmap, [a,b,c] such as ax + by -z +c = 0
         Args :
@@ -131,13 +126,12 @@ class StatePlanner():
             rpy_config[2] = q[5] + v_ref[5] * dt
 
             # Update according to heightmap
-            result = self.compute_mean_surface(config[:3])
             i, j = self.map.map_index(config[0], config[1])
-            config[2] = result[0]*self.map.xv[i, j] + result[1]*self.map.yv[i, j] + result[2] + self.h_ref
+            config[2] = self.result[0]*self.map.x[i] + self.result[1]*self.map.y[j] + self.result[2] + self.h_ref
 
             rpy_map = np.zeros(3)
-            rpy_map[0] = -np.arctan2(result[1], 1.)
-            rpy_map[1] = -np.arctan2(result[0], 1.)
+            rpy_map[0] = -np.arctan2(self.result[1], 1.)
+            rpy_map[1] = -np.arctan2(self.result[0], 1.)
             rpy_config[0] = rpy_map[0] * np.cos(rpy_config[2]) - rpy_map[1] * np.sin(rpy_config[2])
             rpy_config[1] = rpy_map[0] * np.sin(rpy_config[2]) + rpy_map[1] * np.cos(rpy_config[2])
             quat = pin.Quaternion(pin.rpy.rpyToMatrix(rpy_config))

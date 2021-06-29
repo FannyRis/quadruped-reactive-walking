@@ -202,7 +202,8 @@ struct FootstepPlannerQPPythonVisitor : public bp::def_visitor<FootstepPlannerQP
             .def("updateNewContact", &FootstepPlannerQP::updateNewContact, "Refresh feet position when entering a new contact phase.\n")
             .def("get_selected_surfaces", &FootstepPlannerQP::getSelectedSurfaces, "get the selected surfaces \n")
             .def("get_selected_surface", &FootstepPlannerQP::getSelectedSurface, bp::args("foot"), "get the selected surfaces \n")
-            .def("getFootsteps", &FootstepPlannerQP::getFootsteps, "Get footsteps_ matrix.\n");
+            .def("getFootsteps", &FootstepPlannerQP::getFootsteps, "Get footsteps_ matrix.\n")
+            .def("get_v_ref", &FootstepPlannerQP::getVrefResults, "Get v_ref vector.\n");
     }
 
     static void expose()

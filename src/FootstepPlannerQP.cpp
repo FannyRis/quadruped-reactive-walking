@@ -316,7 +316,6 @@ void FootstepPlannerQP::computeFootsteps(VectorN const& q,
         }
         i++;
     }
-
 }
 
 void FootstepPlannerQP::update_remaining_time()
@@ -385,9 +384,6 @@ void FootstepPlannerQP::computeNextFootstep(int i, int foot, Vector3 b_vRef_in, 
     nextFootstep(0) = std::max(nextFootstep(0), -L);
     nextFootstep(1) = std::min(nextFootstep(1), L);
     nextFootstep(1) = std::max(nextFootstep(1), -L);
-
-    // Fix problem :
-    nextFootstep[1] = 0.;
 
     // Add shoulders
     Vector3 RP_ = RPY_;
