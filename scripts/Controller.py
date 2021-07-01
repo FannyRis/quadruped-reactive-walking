@@ -26,6 +26,7 @@ HEIGHTMAP = "/local/users/frisbourg/install/share/hpp_environments/heightmaps/So
 URDF = "/local/users/frisbourg/install/share/hpp_environments/urdf/Solo3D/floor_5.urdf"
 STL = "/local/users/frisbourg/install/share/hpp_environments/meshes/Solo3D/floor_5.stl"
 
+
 class Result:
     """Object to store the result of the control loop
     It contains what is sent to the robot (gains, desired positions and velocities,
@@ -149,7 +150,7 @@ class Controller:
 
         # Wrapper that makes the link with the solver that you want to use for the MPC
         # First argument to True to have PA's MPC, to False to have Thomas's MPC
-        self.enable_multiprocessing = False
+        self.enable_multiprocessing = True
         self.mpc_wrapper = MPC_Wrapper.MPC_Wrapper(type_MPC, dt_mpc, np.int(T_mpc/dt_mpc),
                                                    k_mpc, T_mpc, N_gait, self.q, self.enable_multiprocessing)
 
@@ -198,18 +199,28 @@ class Controller:
         # Solo3D python class
         n_surface_configs = 3
         self.surfacePlanner = SurfacePlanner_Wrapper(URDF, T_gait, N_gait, n_surface_configs, shoulders)
-        print(shoulders)
 
         self.statePlanner = StatePlanner(dt_mpc, T_mpc, self.h_ref, HEIGHTMAP, n_surface_configs, T_gait)
 
         # List of floor surface initialisation
         self.footstepPlanner = lqrw.FootstepPlannerQP()
+        # Trajectory Generator Bezier
+        x_margin_max_ = 0.04  # 4cm margin
+        t_margin_ = 0.2  # 15 % of the curve around critical point
+        z_margin_ = 0.01  # 1% of the curve after the critical point
+        N_sample = 8  # Number of sample in the least square optimisation for Bezier coeffs
+        N_sample_ineq = 4  # Number of sample while browsing the curve
+        degree = 7  # Degree of the Bezier curve
+
+        self.footTrajectoryGenerator = lqrw.FootTrajectoryGeneratorBezier()
+        self.footTrajectoryGenerator.initialize(0.05, 0.07, self.fsteps_init.copy(), shoulders.copy(),
+                                                dt_wbc, k_mpc, self.gait,  self.surfacePlanner.floor_surface, x_margin_max_, t_margin_, z_margin_,
+                                                N_sample, N_sample_ineq, degree)
+
         self.footstepPlanner.initialize(dt_mpc, T_mpc, self.h_ref, k_mpc, dt_wbc, shoulders.copy(), self.gait, N_gait, self.surfacePlanner.floor_surface)
-        
-        self.footTrajectoryGenerator = lqrw.FootTrajectoryGenerator()
-        self.footTrajectoryGenerator.initialize(0.05, 0.07, self.fsteps_init.copy(), shoulders.copy(), dt_wbc, k_mpc, self.gait)
+
         # self.footTrajectoryGenerator = FootTrajectoryGeneratorBezier(T_gait, dt_wbc, k_mpc,  self.fsteps_init, self.gait, self.footstepPlanner)
-        
+
         # Pybullet Trajectory
         self.pybVisualizationTraj = PybVisualizationTraj(self.gait, self.footstepPlanner, self.statePlanner,  self.footTrajectoryGenerator, enable_pyb_GUI, STL)
 
@@ -265,7 +276,6 @@ class Controller:
             oMb = pin.SE3(pin.Quaternion(self.q[3:7, 0:1]), self.q[0:3, 0:1])
             self.v_estim = self.v.copy()
 
-
         # Update gait
         self.gait.updateGait(self.k, self.k_mpc, self.q[0:7, 0:1], self.joystick.joystick_code)
         cgait = self.gait.getCurrentGait()
@@ -320,7 +330,10 @@ class Controller:
         t_state = time.time()
 
         # Compute foot trajectory
-        self.footTrajectoryGenerator.update(self.k, targetFootstep)
+        currentPosition = self.computeFootPositionFeedback(self.k, device, self.q, self.v)
+        self.footTrajectoryGenerator.update(self.k, targetFootstep, self.surfacePlanner.selected_surfaces, currentPosition)
+
+        # self.footTrajectoryGenerator.update(self.k, targetFootstep)
         # self.footTrajectoryGenerator.update(self.k, targetFootstep, device, self.q, self.v)
 
         t_foottraj = time.time()
@@ -328,8 +341,8 @@ class Controller:
         if new_step:
             self.statePlanner.compute_configurations(self.q[:7, 0].copy(), o_v_ref.copy())
             self.surfacePlanner.run(self.statePlanner.configs, cgait, targetFootstep, o_v_ref)
-            if not self.surfacePlanner.multiprocessing:
-                self.pybVisualizationTraj.updateSl1M_target(self.surfacePlanner.all_feet_pos)
+            # if not self.surfacePlanner.multiprocessing:
+            #     self.pybVisualizationTraj.updateSl1M_target(self.surfacePlanner.all_feet_pos)
 
         t_planner = time.time()
 
@@ -337,19 +350,19 @@ class Controller:
         if (self.k % self.k_mpc) == 0:
             try:
                 # Take into account only the leg configuration :
-                self.q_neutral[7:, :] = self.q[7:, :]
-                # Inertia matrix is computed in c = (0,0,0) with ccrba (frame of the body_0)
-                pin.ccrba(self.model, self.data, self.q_neutral, self.v)
-                # Position of CoM in frame body_0
-                CoM_offset = pin.centerOfMass(self.model, self.data, self.q_neutral).reshape((3, 1))
-                # Compute the inertia matrix in CoM frame (body_0 expressed in CoM frame --> -CoM_offset )
-                inertia_CoM = inertiaTranslation(self.data.Ig.inertia, -CoM_offset, 2.5)
-                # xref is given for the position of body_0, apply offset for CoM
-                xref_CoM = xref.copy()
-                xref_CoM[:3, :] += CoM_offset
+                # self.q_neutral[7:, :] = self.q[7:, :]
+                # # Inertia matrix is computed in c = (0,0,0) with ccrba (frame of the body_0)
+                # pin.ccrba(self.model, self.data, self.q_neutral, self.v)
+                # # Position of CoM in frame body_0
+                # CoM_offset = pin.centerOfMass(self.model, self.data, self.q_neutral).reshape((3, 1))
+                # # Compute the inertia matrix in CoM frame (body_0 expressed in CoM frame --> -CoM_offset )
+                # inertia_CoM = inertiaTranslation(self.data.Ig.inertia, -CoM_offset, 2.5)
+                # # xref is given for the position of body_0, apply offset for CoM
+                # xref_CoM = xref.copy()
+                # xref_CoM[:3, :] += CoM_offset
                 # Update inertia matrix of MPC
                 # self.mpc_wrapper.mpc.I = inertia_CoM
-                self.mpc_wrapper.solve(self.k, xref_CoM, fsteps, cgait)
+                self.mpc_wrapper.solve(self.k, xref, fsteps, cgait)
 
             except ValueError:
                 print("MPC Problem")
@@ -393,7 +406,7 @@ class Controller:
             self.result.D = 0.3 * np.ones(12)
             self.result.q_des[:] = self.myController.qdes[7:]
             self.result.v_des[:] = self.myController.vdes[6:, 0]
-            self.result.tau_ff[:] = 0.8 * self.myController.tau_ff
+            self.result.tau_ff[:] = 0.2 * self.myController.tau_ff
 
         t_wbc = time.time()
 
@@ -428,12 +441,12 @@ class Controller:
         if self.k > 10 and self.enable_pyb_GUI:
             # pyb.resetDebugVisualizerCamera(cameraDistance=0.8, cameraYaw=45, cameraPitch=-30,
             #                                cameraTargetPosition=[1.0, 0.3, 0.25])
-            pyb.resetDebugVisualizerCamera(cameraDistance=1.5, cameraYaw=90, cameraPitch=-25.9,
-                                           cameraTargetPosition=[self.q[0, 0]+0.19, self.q[1, 0], 0.0])
+            # pyb.resetDebugVisualizerCamera(cameraDistance=1.5, cameraYaw=90, cameraPitch=-25.9,
+            #                                cameraTargetPosition=[self.q[0, 0]+0.19, self.q[1, 0], 0.0])
             pass
 
         # TODO : One class for pybullet visualization
-        self.pybVisualizationTraj.vizuFootTraj(self.k , self.fsteps , self.gait , device)
+        self.pybVisualizationTraj.vizuFootTraj(self.k, self.fsteps, self.gait, device)
 
     def security_check(self):
         if (self.error_flag == 0) and (not self.myController.error) and (not self.joystick.stop):
@@ -476,3 +489,60 @@ class Controller:
         self.t_list_loop[self.k] = time.time() - tic
         self.t_list_InvKin[self.k] = self.myController.tac - self.myController.tic
         self.t_list_QPWBC[self.k] = self.myController.toc - self.myController.tac
+
+    def computeFootPositionFeedback(self, k, device, q_filt, v_filt):
+        ''' Return the position of the foot using Pybullet feedback, Pybullet feedback with forward dynamics 
+        or Estimator feedback with forward dynamics
+        Args : 
+        - k (int) : step indice
+        - q_filt (Arrayx18) : q estimated (only for estimator feedback)
+        - v_vilt (arrayx18) : v estimated (only for estimator feedback)
+        Returns : 
+        - currentPosition (Array 3x4)
+        '''
+        currentPosition = np.zeros((3, 4))
+
+        # Current position : Pybullet feedback, directly
+        ##########################
+
+        # linkId = [3, 7 ,11 ,15]
+        # if k != 0 :
+        #     links = pyb.getLinkStates(device.pyb_sim.robotId, linkId , computeForwardKinematics=True , computeLinkVelocity=True )
+
+        #     for j in range(4) :
+        #         self.goals[:,j] = np.array(links[j][4])[:]   # pos frame world for feet
+        #         self.goals[2,j] -= 0.016988                  #  Z offset due to position of frame in object
+        #         self.vgoals[:,j] = np.array(links[j][6])     # vel frame world for feet
+
+        # Current position : Pybullet feedback, with forward dynamics
+        ##########################
+
+        if k > 0:    # Dummy device for k == 0
+            qmes = np.zeros((19, 1))
+            revoluteJointIndices = [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14]
+            jointStates = pyb.getJointStates(device.pyb_sim.robotId, revoluteJointIndices)
+            baseState = pyb.getBasePositionAndOrientation(device.pyb_sim.robotId)
+            qmes[:3, 0] = baseState[0]
+            qmes[3:7, 0] = baseState[1]
+            qmes[7:, 0] = [state[0] for state in jointStates]
+            pin.forwardKinematics(self.model, self.data, qmes, v_filt)
+        else:
+            pin.forwardKinematics(self.model, self.data, q_filt, v_filt)
+
+        # Current position : Estimator feedback, with forward dynamics
+        ##########################
+
+        # pin.forwardKinematics(self.model, self.data, q_filt, v_filt)
+
+        contactFrameId = [10, 18, 26, 34]   # = [ FL , FR , HL , HR]
+
+        for j in range(4):
+            framePlacement = pin.updateFramePlacement(
+                self.model, self.data, contactFrameId[j])    # = solo.data.oMf[18].translation
+            frameVelocity = pin.getFrameVelocity(self.model, self.data, contactFrameId[j], pin.ReferenceFrame.LOCAL)
+
+            currentPosition[:, j] = framePlacement.translation[:]
+            currentPosition[2, j] -= 0.016988                     # Pybullet offset on Z
+            # self.vgoals[:,j] = frameVelocity.linear       # velocity feedback not working
+
+        return currentPosition

@@ -40,8 +40,8 @@ class pybullet_simulator:
             self.planeId = pyb.loadURDF("plane.urdf")  # Flat plane
             self.planeIdbis = pyb.loadURDF("plane.urdf")  # Flat plane
             pyb.resetBasePositionAndOrientation(self.planeIdbis, [20.0, 0, 0], [0, 0, 0, 1])
-            pyb.changeVisualShape(self.planeId, -1, rgbaColor=[1, 1, 1, 0.1])
-            pyb.changeVisualShape(self.planeIdbis, -1, rgbaColor=[1, 1, 1, 0.1])
+            pyb.changeVisualShape(self.planeId, -1, rgbaColor=[1, 1, 1, 0.01])
+            pyb.changeVisualShape(self.planeIdbis, -1, rgbaColor=[1, 1, 1, 0.01])
         else:
             import random
             random.seed(41)
@@ -56,7 +56,6 @@ class pybullet_simulator:
                 for i in range(int(numHeightfieldRows/2)):
                     # uniform distribution
                     height = random.uniform(0, heightPerturbationRange)
-                    # height = 0.25*np.sin(2*np.pi*(i-128)/46)  # sinus pattern
                     heightfieldData[2*i+2*j * numHeightfieldRows] = (height + height_prev) * 0.5
                     heightfieldData[2*i+1+2*j*numHeightfieldRows] = height
                     heightfieldData[2*i+(2*j+1) * numHeightfieldRows] = (height + height_prev) * 0.5

@@ -79,10 +79,10 @@ class StatePlanner():
             self.referenceStates[2, k] = z + self.h_ref
             if k == 1:
                 self.surface_point = z
-        
+
         v_max = 0.1  # m.s-1
         self.referenceStates[8, 1] = max(min((self.referenceStates[2, 1] - q[2]) / self.dt_mpc, v_max), -v_max)
-        self.referenceStates[8, 2:] = (self.referenceStates[2, 2] -self.referenceStates[2, 1]) / self.dt_mpc
+        self.referenceStates[8, 2:] = (self.referenceStates[2, 2] - self.referenceStates[2, 1]) / self.dt_mpc
 
     def compute_mean_surface(self, q):
         '''  Compute the surface equation to fit the heightmap, [a,b,c] such as ax + by -z +c = 0
@@ -103,7 +103,7 @@ class StatePlanner():
                 b[i_pb] = self.map.z[i, j]
                 i_pb += 1
 
-        self.result =  solve_least_square(np.array(A), np.array(b)).x
+        self.result = solve_least_square(np.array(A), np.array(b)).x
 
     def compute_configurations(self, q, v_ref):
         """  

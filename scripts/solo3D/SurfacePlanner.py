@@ -154,7 +154,7 @@ class SurfacePlanner:
         if indices is not None:
             surface_indices = []
         else:
-            surface_indices=None
+            surface_indices = None
         first_phase_i = 0
         second_phase_i = 0
         for foot in range(4):
@@ -233,7 +233,7 @@ class SurfacePlanner:
             # ax = plot.draw_whole_scene(self.all_surfaces)
             # plot.plot_initial_contacts(initial_contacts, ax=ax)
             # ax.scatter([c[0] for c in configs], [c[1] for c in configs], [c[2] for c in configs], marker='o', linewidth=5)
-            # ax.plot([c[0] for c in configs], [c[1] for c in configs], [c[2] for c in configs])    
+            # ax.plot([c[0] for c in configs], [c[1] for c in configs], [c[2] for c in configs])
 
             # plt.show()
 

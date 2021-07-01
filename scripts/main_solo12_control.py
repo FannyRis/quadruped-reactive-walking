@@ -1,18 +1,17 @@
 # coding: utf8
 
+import libquadruped_reactive_walking as lqrw
+from LoggerControl import LoggerControl
+from LoggerSensors import LoggerSensors
+import argparse
+import numpy as np
+from Controller import Controller
+import threading
 import os
 import sys
 
 sys.path.insert(0, './solopython')
 
-
-import threading
-from Controller import Controller
-import numpy as np
-import argparse
-from LoggerSensors import LoggerSensors
-from LoggerControl import LoggerControl
-import libquadruped_reactive_walking as lqrw
 
 params = lqrw.Params()  # Object that holds all controller parameters
 
@@ -142,7 +141,7 @@ def control_loop(name_interface, name_interface_clone=None):
         cloneRunning = Value('b', True)
         cloneResult = Value('b', True)
         clone = Process(target=clone_movements, args=(name_interface_clone, q_init, cloneP,
-                        cloneD, cloneQdes, cloneDQdes, cloneRunning, cloneResult))
+                                                      cloneD, cloneQdes, cloneDQdes, cloneRunning, cloneResult))
         clone.start()
         print(cloneResult.value)
 
@@ -221,7 +220,7 @@ def control_loop(name_interface, name_interface_clone=None):
         #         print(cpt_frames)
         #     img = pyb.getCameraImage(width=1920, height=1080, renderer=pyb.ER_BULLET_HARDWARE_OPENGL)
         #     if cpt_frames == 0:
-                
+
         #         if not os.path.exists(newpath):
         #             os.makedirs(newpath)
         #     if (int(cpt_frames/step) < 10):
@@ -285,21 +284,21 @@ def control_loop(name_interface, name_interface_clone=None):
     device.hardware.Stop()  # Shut down the interface between the computer and the master board
 
     # Plot estimated computation time for each step for the control architecture
-    """from matplotlib import pyplot as plt
+    from matplotlib import pyplot as plt
     plt.figure()
     plt.plot(controller.t_list_filter[1:], 'r+')
     plt.plot(controller.t_list_gait[1:], 'y+')
     plt.plot(controller.t_list_footstep[1:], 'r+')
-    plt.plot(controller.t_list_state[1:], 'g+')
+    plt.plot(controller.t_list_state[1:], 'go')
     plt.plot(controller.t_list_foottraj[1:], 'b+')
-    plt.plot(controller.t_list_mpc[1:], 'b+')
+    plt.plot(controller.t_list_mpc[1:], 'g+')
     plt.plot(controller.t_list_wbc[1:], '+', color="violet")
     plt.plot(controller.t_list_loop[1:], 'k+')
     plt.plot(controller.t_list_InvKin[1:], 'o', color="darkgreen")
     plt.plot(controller.t_list_QPWBC[1:], 'o', color="royalblue")
     plt.legend(["Estimator", "gait", "footstep planner", "state planner", "trajectory planner", "MPC", "WBC", "Whole loop", "InvKin", "QP WBC"])
     plt.title("Loop time [s]")
-    plt.show(block=True)"""
+    plt.show(block=True)
 
     # Plot recorded data
     if params.PLOTTING:
@@ -323,14 +322,8 @@ def control_loop(name_interface, name_interface_clone=None):
             print("-- FEEDFORWARD TORQUES TOO HIGH ERROR --")
         print(controller.error_value)
 
-    # Print timing from cprofile
-    # output_folder = "/home/frisbourg/Bureau/"
-    # controller.footstepPlanner.print_profile(output_folder + "footStepPlanner.prof")
-    # controller.footTrajectoryGenerator.print_profile(output_folder + "bezier.prof")
-    # controller.surfacePlanner.surfacePlanner.print_profile(output_folder + "surfacePlanner.prof")
-
     # Plot figure relative to planner values
-    controller.loggerPlanner.plot_log_planner()
+    # controller.loggerPlanner.plot_log_planner()
 
     print("End of script")
     quit()

@@ -110,7 +110,7 @@ class SurfacePlanner_Wrapper():
         self.mip_iteration_syn = 0
         self.mip_success_syn = False
 
-        self.multiprocessing = False
+        self.multiprocessing = True
         if self.multiprocessing:  # Setup variables in the shared memory
             self.newData = Value('b', False)
             self.newResult = Value('b', True)
@@ -186,7 +186,7 @@ class SurfacePlanner_Wrapper():
                 t1 = clock()
                 self.compress_dataOut(surfaces, surface_inequalities, surfaces_indices, all_feet_pos, success)
                 t2 = clock()
-                print("TIME COMPRESS DATA [ms] :  ", 1000 * (t2 - t1))
+                # print("TIME COMPRESS DATA [ms] :  ", 1000 * (t2 - t1))
 
                 # Set shared variable to true to signal that a new result is available
                 newResult.value = True
@@ -230,7 +230,7 @@ class SurfacePlanner_Wrapper():
         with self.dataOut.get_lock():
             # Compress potential surfaces :
             for foot, foot_surfaces in enumerate(surface_inequalities):
-                i=0
+                i = 0
                 for i, (S, s) in enumerate(foot_surfaces):
                     A = np.frombuffer(self.dataOut.potentialSurfaces[foot][i].A).reshape((nrow, 3))
                     b = np.frombuffer(self.dataOut.potentialSurfaces[foot][i].b)
