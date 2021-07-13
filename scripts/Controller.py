@@ -18,13 +18,13 @@ from example_robot_data import load
 
 from solo3D.tools.geometry import inertiaTranslation
 
-# URDF = "/local/users/frisbourg/install/share/hpp_environments/urdf/Solo3D/stairs_rotation.urdf"
-# HEIGHTMAP = "/local/users/frisbourg/install/share/hpp_environments/heightmaps/Solo3D/stairs_rotation.pickle"
-# STL = None
+URDF = "/local/users/frisbourg/install/share/hpp_environments/urdf/Solo3D/stairs_rotation.urdf"
+HEIGHTMAP = "/local/users/frisbourg/install/share/hpp_environments/heightmaps/Solo3D/stairs_rotation.pickle"
+STL = "object"
 
-HEIGHTMAP = "/local/users/frisbourg/install/share/hpp_environments/heightmaps/Solo3D/floor_4_4.pickle"
-URDF = "/local/users/frisbourg/install/share/hpp_environments/urdf/Solo3D/floor_5.urdf"
-STL = "/local/users/frisbourg/install/share/hpp_environments/meshes/Solo3D/floor_5.stl"
+# HEIGHTMAP = "/local/users/frisbourg/install/share/hpp_environments/heightmaps/Solo3D/floor_4_4.pickle"
+# URDF = "/local/users/frisbourg/install/share/hpp_environments/urdf/Solo3D/floor_5.urdf"
+# STL = "/local/users/frisbourg/install/share/hpp_environments/meshes/Solo3D/floor_5.stl"
 
 
 class Result:
@@ -406,7 +406,7 @@ class Controller:
             self.result.D = 0.3 * np.ones(12)
             self.result.q_des[:] = self.myController.qdes[7:]
             self.result.v_des[:] = self.myController.vdes[6:, 0]
-            self.result.tau_ff[:] = 0.2 * self.myController.tau_ff
+            self.result.tau_ff[:] = 0.8 * self.myController.tau_ff
 
         t_wbc = time.time()
 
@@ -434,8 +434,6 @@ class Controller:
         # Increment loop counter
         self.k += 1
 
-        return 0.0
-
     def pyb_camera(self, device):
         # Update position of PyBullet camera on the robot position to do as if it was attached to the robot
         if self.k > 10 and self.enable_pyb_GUI:
@@ -449,19 +447,19 @@ class Controller:
         self.pybVisualizationTraj.vizuFootTraj(self.k, self.fsteps, self.gait, device)
 
     def security_check(self):
-        if (self.error_flag == 0) and (not self.myController.error) and (not self.joystick.stop):
-            if np.any(np.abs(self.estimator.q_filt[7:, 0]) > self.q_security):
-                self.myController.error = True
-                self.error_flag = 1
-                self.error_value = self.estimator.q_filt[7:, 0] * 180 / 3.1415
-            if np.any(np.abs(self.estimator.v_secu) > 100):
-                self.myController.error = True
-                self.error_flag = 2
-                self.error_value = self.estimator.v_secu
-            if np.any(np.abs(self.myController.tau_ff) > 15):
-                self.myController.error = True
-                self.error_flag = 3
-                self.error_value = self.myController.tau_ff
+        # if (self.error_flag == 0) and (not self.myController.error) and (not self.joystick.stop):
+        #     if np.any(np.abs(self.estimator.q_filt[7:, 0]) > self.q_security):
+        #         self.myController.error = True
+        #         self.error_flag = 1
+        #         self.error_value = self.estimator.q_filt[7:, 0] * 180 / 3.1415
+        #     if np.any(np.abs(self.estimator.v_secu) > 100):
+        #         self.myController.error = True
+        #         self.error_flag = 2
+        #         self.error_value = self.estimator.v_secu
+        #     if np.any(np.abs(self.myController.tau_ff) > 15):
+        #         self.myController.error = True
+        #         self.error_flag = 3
+        #         self.error_value = self.myController.tau_ff
 
         # If something wrong happened in TSID controller we stick to a security controller
         if self.myController.error or self.joystick.stop:
